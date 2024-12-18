@@ -2,6 +2,7 @@ import 'package:bolanet76/app/modules/home/controllers/auth_controller.dart';
 import 'package:bolanet76/app/modules/services/firebase_messaging_handler.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:bolanet76/dependency_injection.dart';
 
 import 'package:get/get.dart';
 

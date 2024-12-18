@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:geolocator/geolocator.dart'; // Import geolocator
-import 'package:geocoding/geocoding.dart'; // Import geocoding
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
+import 'dart:math';
 
 class LocationPage extends StatefulWidget {
   const LocationPage({super.key});
@@ -10,23 +11,38 @@ class LocationPage extends StatefulWidget {
   _LocationPageState createState() => _LocationPageState();
 }
 
-class _LocationPageState extends State<LocationPage> {
+class _LocationPageState extends State<LocationPage>
+    with SingleTickerProviderStateMixin {
   String _latitude = "";
   String _longitude = "";
   String _locationMessage = "Menunggu lokasi...";
   String _address = "Menunggu alamat...";
+  double? _distanceToDestination;
+  String _destinationMessage = "Masukkan nama kota tujuan.";
+  TextEditingController _cityController = TextEditingController();
+  double? _destinationLatitude;
+  double? _destinationLongitude;
+  late AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 5),
+    )..repeat(reverse: true);
   }
 
-  /// Fungsi untuk mendapatkan lokasi saat ini
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
   Future<void> _getCurrentLocation() async {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Periksa apakah layanan lokasi diaktifkan
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() {
@@ -35,7 +51,6 @@ class _LocationPageState extends State<LocationPage> {
       return;
     }
 
-    // Periksa izin lokasi
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -54,7 +69,6 @@ class _LocationPageState extends State<LocationPage> {
       return;
     }
 
-    // Ambil lokasi saat ini
     Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high);
 
@@ -64,11 +78,9 @@ class _LocationPageState extends State<LocationPage> {
       _locationMessage = "Latitude: $_latitude, Longitude: $_longitude";
     });
 
-    // Ambil alamat dari koordinat
     await _getAddressFromCoordinates(position.latitude, position.longitude);
   }
 
-  /// Fungsi untuk mendapatkan alamat dari koordinat
   Future<void> _getAddressFromCoordinates(
       double latitude, double longitude) async {
     try {
@@ -86,19 +98,68 @@ class _LocationPageState extends State<LocationPage> {
     }
   }
 
-  /// Fungsi untuk membuka lokasi di Google Maps menggunakan koordinat yang diambil
-  void _openGoogleMaps() {
-    if (_latitude.isNotEmpty && _longitude.isNotEmpty) {
-      final url = 'https://www.google.com/maps/place/$_latitude,$_longitude';
-      _launchURL(url);
-    } else {
+  Future<void> _setDestinationCoordinates() async {
+    if (_cityController.text.isNotEmpty) {
+      try {
+        List<Location> locations =
+            await locationFromAddress(_cityController.text);
+        Location destination = locations[0];
+        setState(() {
+          _destinationLatitude = destination.latitude;
+          _destinationLongitude = destination.longitude;
+          _destinationMessage =
+              "Koordinat tujuan: Lat ${_destinationLatitude}, Lon ${_destinationLongitude}";
+        });
+      } catch (e) {
+        setState(() {
+          _destinationMessage =
+              "Gagal mendapatkan koordinat untuk kota ini: $e";
+        });
+      }
+    }
+  }
+
+  void _calculateDistance() {
+    if (_latitude.isNotEmpty &&
+        _longitude.isNotEmpty &&
+        _destinationLatitude != null &&
+        _destinationLongitude != null) {
+      double userLat = double.parse(_latitude);
+      double userLon = double.parse(_longitude);
+      double destLat = _destinationLatitude!;
+      double destLon = _destinationLongitude!;
+
+      const R = 6371; // Radius bumi dalam kilometer
+      double dLat = _toRadians(destLat - userLat);
+      double dLon = _toRadians(destLon - userLon);
+      double a = sin(dLat / 2) * sin(dLat / 2) +
+          cos(_toRadians(userLat)) *
+              cos(_toRadians(destLat)) *
+              sin(dLon / 2) *
+              sin(dLon / 2);
+      double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+      double distance = R * c;
+
       setState(() {
-        _locationMessage = "Tidak ada koordinat yang dapat dibuka.";
+        _distanceToDestination = distance;
+        _destinationMessage =
+            "Jarak ke tujuan: ${distance.toStringAsFixed(2)} km";
       });
     }
   }
 
-  /// Fungsi untuk meluncurkan URL
+  void _navigateToDestination() {
+    if (_destinationLatitude != null && _destinationLongitude != null) {
+      final url =
+          'https://www.google.com/maps/dir/$_latitude,$_longitude/$_destinationLatitude,$_destinationLongitude';
+      _launchURL(url);
+    }
+  }
+
+  double _toRadians(double degree) {
+    return degree * pi / 180;
+  }
+
   void _launchURL(String url) async {
     if (await canLaunch(url)) {
       await launch(url);
@@ -107,105 +168,95 @@ class _LocationPageState extends State<LocationPage> {
     }
   }
 
+  Widget _buildBackgroundAnimation() {
+    return AnimatedBuilder(
+      animation: _animationController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.blue,
+                Colors.blueAccent,
+                Colors.lightBlueAccent,
+              ],
+              stops: [
+                0.0,
+                0.5 + 0.5 * _animationController.value,
+                1.0,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Color(0xFF004A7C), // Warna biru yang lebih gelap
-        title: Text(
-          "Lokasi Saya",
-        ),
+        backgroundColor: const Color(0xFF004A7C),
+        title: const Text("Lokasi Saya"),
         centerTitle: true,
-        elevation: 6,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.location_on,
-                size: 80,
-                color: Color(0xFF004A7C), // Warna ikon
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Titik Koordinat',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF004A7C), // Warna teks
+      body: Stack(
+        children: [
+          _buildBackgroundAnimation(),
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                Text(
+                  _locationMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 18, color: Colors.white),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _locationMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.black87,
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _getCurrentLocation,
+                  child: const Text("Cari Lokasi Saya"),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Alamat',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF004A7C), // Warna teks
+                const SizedBox(height: 20),
+                Text(
+                  'Alamat: $_address',
+                  style: const TextStyle(color: Colors.white),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _address,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 40),
-              ElevatedButton(
-                onPressed: _getCurrentLocation, // Mendapatkan lokasi saat ini
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      Color(0xFF005B96), // Biru terang untuk tombol
-                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _cityController,
+                  decoration: const InputDecoration(
+                    labelText: "Nama Kota Tujuan",
+                    border: OutlineInputBorder(),
                   ),
                 ),
-                child: const Text(
-                  'Cari Lokasi Saya',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.white, // Mengubah warna teks menjadi putih
-                  ),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _setDestinationCoordinates,
+                  child: const Text("Setel Tujuan"),
                 ),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _openGoogleMaps, // Membuka lokasi di Google Maps
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      Color(0xFF005B96), // Biru terang untuk tombol
-                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                ElevatedButton(
+                  onPressed: _calculateDistance,
+                  child: const Text("Hitung Jarak"),
                 ),
-                child: const Text(
-                  'Buka Google Maps',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.white, // Mengubah warna teks menjadi putih
-                  ),
+                ElevatedButton(
+                  onPressed: _navigateToDestination,
+                  child: const Text("Navigasi ke Tujuan"),
                 ),
-              ),
-            ],
+                const SizedBox(height: 20),
+                Text(
+                  _destinationMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

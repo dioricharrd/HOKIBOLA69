@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeView> {
               width: 40,
             ),
             const SizedBox(width: 10),
-            const Text("HOKIBOLA69", style: TextStyle(color: Colors.white)),
+            const Text("HOKIBOLA76", style: TextStyle(color: Colors.white)),
           ],
         ),
         actions: [
